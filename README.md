@@ -1,5 +1,23 @@
 # School Admission System
 
-FCFS school admission system: .NET 8 API, PostgreSQL, React frontend, all run via Docker Compose.
+FCFS admission system with concurrency-safe PostgreSQL seat holds, .NET 8 minimal API, and React/Vite UI.
 
-> Work in progress. Setup, URLs and test instructions will be filled in as the project is built.
+## Run
+Install Docker only, then from the repository root:
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:3001. The API is at http://localhost:8080. Data is persisted in the `pgdata` Docker volume. Copy `.env.example` to `.env` to configure the database or `HOLD_DURATION_SECONDS` (default 600).
+
+## API and tests
+The API implements `POST/GET /classes`, `POST /classes/{id}/holds`, `GET /holds/{id}`, `POST /holds/{id}/confirm`, `DELETE /holds/{id}`, and `GET /me/holds`. Student operations require a 17-digit `X-Student-Id` header.
+
+With .NET 8 installed and the API/database running, execute:
+
+```bash
+dotnet test backend.tests
+```
+
+The concurrency test sends 20 simultaneous applications against a three-seat class and verifies exactly three succeed.

@@ -1,0 +1,19 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# Env / local
+.env
+.env.local
+*.log
+.DS_Store
+.idea/
+.vscode/

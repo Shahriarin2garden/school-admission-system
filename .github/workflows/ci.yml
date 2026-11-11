@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend build and integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: school
+          POSTGRES_PASSWORD: school
+          POSTGRES_DB: school_admission
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U school -d school_admission"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: Host=localhost;Port=5432;Database=school_admission;Username=school;Password=school
+      HOLD_DURATION_SECONDS: 600
+      EXPIRATION_SWEEP_SECONDS: 2
+      API_URL: http://localhost:8080
+      API_URL_2: http://localhost:8081
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: |
+          dotnet restore backend/SchoolAdmission.Api.csproj
+          dotnet restore backend.tests/SchoolAdmission.Tests.csproj
+
+      - name: Build
+        run: |
+          dotnet build backend/SchoolAdmission.Api.csproj --no-restore -c Release
+          dotnet build backend.tests/SchoolAdmission.Tests.csproj --no-restore -c Release
+
+      - name: Start API instance 1
+        run: |
+          ASPNETCORE_URLS=http://0.0.0.0:8080 dotnet run --project backend --no-build -c Release > /tmp/api1.log 2>&1 &
+
+      - name: Start API instance 2
+        run: |
+          ASPNETCORE_URLS=http://0.0.0.0:8081 dotnet run --project backend --no-build -c Release > /tmp/api2.log 2>&1 &
+
+      - name: Wait for both APIs
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/health >/dev/null && curl -fsS http://localhost:8081/health >/dev/null; then
+              echo "Both APIs are healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "APIs failed to become healthy"
+          cat /tmp/api1.log || true
+          cat /tmp/api2.log || true
+          exit 1
+
+      - name: Run backend tests
+        run: dotnet test backend.tests --no-build -c Release --logger "console;verbosity=normal"
+
+      - name: Show API logs on failure
+        if: failure()
+        run: |
+          cat /tmp/api1.log || true
+          cat /tmp/api2.log || true
+
+  frontend:
+    name: Frontend tests and production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Build production bundle
+        run: npm run build
+
+  docker:
+    name: Docker images and Compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Compose configuration
+        run: docker compose config
+
+      - name: Build all images
+        run: docker compose build

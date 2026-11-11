@@ -71,7 +71,7 @@ app.MapPost("/holds/{id}/confirm", async (string id, HttpRequest http) =>
     var hold = await GetHoldRow(db, tx, id);
     if (hold is null) { await tx.RollbackAsync(); return Results.NotFound(new { error = "Hold not found." }); }
     await LockClass(db, tx, hold.Value.classId); await Expire(db, tx); hold = await GetHoldRow(db, tx, id);
-    if (hold.Value.student != student) { await tx.RollbackAsync(); return Results.Forbid(); }
+    if (hold.Value.student != student) { await tx.RollbackAsync(); return Results.Json(new { error = "Not your application." }, statusCode: StatusCodes.Status403Forbidden); }
     if (hold.Value.status == "CONFIRMED") { await tx.CommitAsync(); return Results.Ok(new { holdId = id, status = "CONFIRMED" }); }
     if (hold.Value.status != "HELD" || hold.Value.expires <= DateTime.UtcNow) { await tx.CommitAsync(); return Results.Conflict(new { error = "Application cannot be confirmed." }); }
     await using var cmd = new NpgsqlCommand("update holds set status='CONFIRMED' where id=@id and status='HELD'", db, tx); cmd.Parameters.AddWithValue("id", id); await cmd.ExecuteNonQueryAsync();
@@ -84,7 +84,13 @@ app.MapDelete("/holds/{id}", async (string id, HttpRequest http) =>
     await using var db = new NpgsqlConnection(connectionString); await db.OpenAsync();
     await using var cmd = new NpgsqlCommand("update holds set status='CANCELLED' where id=@id and student_id=@student and status='HELD'", db);
     cmd.Parameters.AddWithValue("id", id); cmd.Parameters.AddWithValue("student", student);
-    var n = await cmd.ExecuteNonQueryAsync(); return n == 0 ? Results.Conflict(new { error = "Application cannot be cancelled." }) : Results.NoContent();
+    var n = await cmd.ExecuteNonQueryAsync();
+    if (n > 0) return Results.NoContent();
+    await using var exists = new NpgsqlCommand("select exists(select 1 from holds where id=@id)", db);
+    exists.Parameters.AddWithValue("id", id);
+    return (bool)(await exists.ExecuteScalarAsync())!
+        ? Results.Conflict(new { error = "Application cannot be cancelled." })
+        : Results.NotFound(new { error = "Hold not found." });
 });
 
 app.MapGet("/me/holds", async (HttpRequest http) =>

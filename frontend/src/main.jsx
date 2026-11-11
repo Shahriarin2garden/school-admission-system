@@ -6,7 +6,12 @@ import { isExpired, isValidStudentId, remainingTime } from './appLogic';
 const API = import.meta.env.VITE_API_URL;
 
 async function call(path, options = {}) {
-  const response = await fetch(API + path, options);
+  let response;
+  try {
+    response = await fetch(API + path, options);
+  } catch {
+    throw new Error('Unable to reach the server. Please try again.');
+  }
   let body = null;
   try {
     body = await response.json();
@@ -97,6 +102,9 @@ function App() {
           <button onClick={() => setError('')} aria-label="Dismiss">×</button>
         </div>
       )}
+      {!validStudent && student && (
+        <div className="error" role="alert">Enter a valid 17-digit student number.</div>
+      )}
 
       <section>
         <h2>Admission classes</h2>
@@ -133,20 +141,25 @@ function App() {
                 <article key={h.holdId} className={expired ? 'flagged' : undefined}>
                   <div>
                     <b>{h.className}</b>
+                    <small>Class {h.classId}</small>
                     <small>Hold {h.holdId}</small>
                   </div>
                   <strong className={expired ? 'expired' : h.status}>
                     {expired ? 'EXPIRED' : h.status}
                   </strong>
                   {h.status === 'HELD' && (
-                    <small>{expired ? 'Expired' : left ? `Expires in ${left}` : null}</small>
+                    <small>
+                      {expired ? 'Expired' : left ? `Expires in ${left}` : null}
+                      {' · Expires '}
+                      {new Date(h.expiresAt).toLocaleString()}
+                    </small>
                   )}
-                  {h.status === 'HELD' && !expired && (
+                  {h.status === 'HELD' && (
                     <div className="actions">
-                      <button disabled={busy !== ''} onClick={() => pay(h.holdId)}>
+                      <button disabled={busy !== '' || expired} onClick={() => pay(h.holdId)}>
                         {busy === `pay-${h.holdId}` ? 'Paying…' : 'Pay admission fee'}
                       </button>
-                      <button className="secondary" disabled={busy !== ''} onClick={() => cancel(h.holdId)}>
+                      <button className="secondary" disabled={busy !== '' || expired} onClick={() => cancel(h.holdId)}>
                         {busy === `cancel-${h.holdId}` ? 'Cancelling…' : 'Cancel'}
                       </button>
                     </div>

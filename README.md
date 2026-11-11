@@ -21,3 +21,18 @@ dotnet test backend.tests
 ```
 
 The concurrency test sends 20 simultaneous applications against a three-seat class and verifies exactly three succeed.
+
+The frontend checks can be run independently:
+
+```bash
+cd frontend
+npm test
+npm run build
+```
+
+The backend tests require a reachable API and PostgreSQL instance. The complete stack can be started with Docker Compose before running them:
+
+```bash
+docker compose up --build -d
+dotnet test backend.tests
+```

@@ -1,32 +1,112 @@
+name: school-admission
+
+x-backend-environment: &backend-environment
+  DATABASE_URL: Host=db;Port=5432;Database=${POSTGRES_DB:-school_admission};Username=${POSTGRES_USER:-school};Password=${POSTGRES_PASSWORD:-school}
+  HOLD_DURATION_SECONDS: ${HOLD_DURATION_SECONDS:-600}
+  EXPIRATION_SWEEP_SECONDS: ${EXPIRATION_SWEEP_SECONDS:-2}
+  ASPNETCORE_URLS: http://0.0.0.0:8080
+
 services:
   db:
     image: postgres:16-alpine
+    command: ["postgres", "-c", "max_connections=200"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-school}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-school}
       POSTGRES_DB: ${POSTGRES_DB:-school_admission}
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U school -d school_admission"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 3s
-      timeout: 3s
+      timeout: 5s
       retries: 20
-  backend:
-    build: ./backend
-    environment:
-      DATABASE_URL: Host=db;Port=5432;Database=${POSTGRES_DB:-school_admission};Username=${POSTGRES_USER:-school};Password=${POSTGRES_PASSWORD:-school}
-      HOLD_DURATION_SECONDS: ${HOLD_DURATION_SECONDS:-600}
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - admission
+
+  backend1:
+    build:
+      context: ./backend
+    environment: *backend-environment
     depends_on:
-      db: {condition: service_healthy}
-    ports: ["8080:8080"]
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - admission
+
+  backend2:
+    build:
+      context: ./backend
+    environment: *backend-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - admission
+
   frontend:
     build:
       context: ./frontend
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    depends_on:
+      backend1:
+        condition: service_healthy
+    ports:
+      - "3001:80"
+    restart: unless-stopped
+    networks:
+      - admission
+
+  backend-tests:
+    profiles: ["test"]
+    build:
+      context: ./backend.tests
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
-    depends_on: [backend]
-    ports: ["3001:80"]
+      API_URL: http://backend1:8080
+      API_URL_2: http://backend2:8080
+      DATABASE_URL: Host=db;Port=5432;Database=${POSTGRES_DB:-school_admission};Username=${POSTGRES_USER:-school};Password=${POSTGRES_PASSWORD:-school}
+    depends_on:
+      db:
+        condition: service_healthy
+      backend1:
+        condition: service_healthy
+      backend2:
+        condition: service_healthy
+    networks:
+      - admission
+
+  frontend-tests:
+    profiles: ["test"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.test
+    networks:
+      - admission
+
 volumes:
   pgdata:
+
+networks:
+  admission:
+    driver: bridge
